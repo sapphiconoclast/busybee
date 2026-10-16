@@ -189,16 +189,16 @@ public class BusyBee {
                     MessageChannelUnion channel = (MessageChannelUnion)api.getGuildChannelById((String)jObj.get("channel"));
                     LocalTime start = LocalTime.parse((String)jObj.get("start"));
                     int interval = Integer.valueOf((String)jObj.get("interval"));
-                    ReminderTask task = new ReminderTask(msg, channel);
+                    ReminderTask task = new ReminderTask(msg, channel, interval);
                     if (start.isBefore(LocalTime.now())){
-                        LocalTime nTime = start.plusHours(interval);
-                        while (nTime.isBefore(LocalTime.now())){
+                        LocalDateTime nTime = LocalDateTime.of(LocalDate.now(), start.plusHours(interval));
+                        while (nTime.isBefore(LocalDateTime.now())){
                             nTime = nTime.plusHours(interval);
                         }
-                        reminderTimer.scheduleAtFixedRate(task, LocalTime.now().until(nTime, ChronoUnit.MILLIS), (long)interval * 60 * 60 * 1000);
+                        reminderTimer.scheduleAtFixedRate(task, LocalDateTime.now().until(nTime, ChronoUnit.MILLIS), (long)interval * 60 * 60 * 1000);
                     }
                     else {
-                        reminderTimer.scheduleAtFixedRate(task, LocalTime.now().until(start, ChronoUnit.MILLIS), (long)interval * 60 * 60 * 1000);
+                        reminderTimer.scheduleAtFixedRate(task, LocalDateTime.now().until(LocalDateTime.of(LocalDate.now(), start), ChronoUnit.MILLIS), (long)interval * 60 * 60 * 1000);
                     }
                     reminders.add(new Reminder(msg, id, task, channel, start, interval));
                 }
@@ -356,22 +356,22 @@ class BBListener extends ListenerAdapter {
                 }
                 else if (content.equals("BB:awake get")){
                     if (BusyBee.awake){
-                        channel.sendMessage("Busy Bee is currently awake. Reminders will be sent.").complete();
+                        channel.sendMessage("Busy Bee is currently awake. All reminders will be sent.").complete();
                     }
                     else {
-                        channel.sendMessage("Busy Bee is currently asleep. Reminders will not be sent.").complete();
+                        channel.sendMessage("Busy Bee is currently asleep. Reminders with an interval of less than 24 hours will not be sent.").complete();
                     }
                 }
                 else if (content.equals("BB:awake set true")){
                     if (!BusyBee.awake){
                         BusyBee.awake = true;
-                        channel.sendMessage("Busy Bee is now awake. Reminders will be sent.").complete();
+                        channel.sendMessage("Busy Bee is now awake. All reminders will be sent.").complete();
                     }
                 }
                 else if (content.equals("BB:awake set false")){
                     if (BusyBee.awake){
                         BusyBee.awake = false;
-                        channel.sendMessage("Busy Bee is now not awake. Reminders will not be sent.").complete();
+                        channel.sendMessage("Busy Bee is now not awake. Reminders with an interval of less than 24 hours will not be sent.").complete();
                     }
                 }
                 else if (content.startsWith("BB:remind")){
@@ -414,7 +414,7 @@ class BBListener extends ListenerAdapter {
                         int interval = Integer.valueOf(tokens[2]);
                         int id = Integer.valueOf(message.getId().substring(message.getId().length()-5));
                         LocalTime time = OffsetDateTime.parse(LocalDate.now().toString()+"T"+tokens[1]+"+00:00").atZoneSameInstant(ZoneId.systemDefault()).toLocalTime(); //time is stored in local time at an offset determined by your computer's system time.
-                        ReminderTask task = new ReminderTask(tokens[0], channel);
+                        ReminderTask task = new ReminderTask(tokens[0], channel, interval);
                         //the way this scheduling process works is effectively a template for all other scheduling functionality.
                         if (LocalTime.now().isBefore(time)){ //if now is before time, schedule the reminder normal-style
                             BusyBee.reminderTimer.scheduleAtFixedRate(task, LocalDateTime.now().until(LocalDateTime.of(LocalDate.now(), time), ChronoUnit.MILLIS), interval * 60 * 60 * 1000);
@@ -649,18 +649,18 @@ class BBListener extends ListenerAdapter {
                     }
                     else {
                         if (tokens[2].equals("up3")){
-                            BusyBee.qotdIndex = Math.max(0, BusyBee.qotdIndex-3);
+                            BusyBee.remindersIndex = Math.max(0, BusyBee.remindersIndex-3);
                         }
                         else if (tokens[2].equals("up1")){
-                            BusyBee.qotdIndex = Math.max(0, BusyBee.qotdIndex-1);
+                            BusyBee.remindersIndex = Math.max(0, BusyBee.remindersIndex-1);
                         }
                         else if (tokens[2].equals("down1")){
-                            BusyBee.qotdIndex = Math.min(BusyBee.qotds.size()-1, BusyBee.qotdIndex+1);
+                            BusyBee.remindersIndex = Math.min(BusyBee.reminders.size()-1, BusyBee.remindersIndex+1);
                         }
                         else if (tokens[2].equals("down3")){
-                            BusyBee.qotdIndex = Math.min(BusyBee.qotds.size()-1, BusyBee.qotdIndex+3);
+                            BusyBee.remindersIndex = Math.min(BusyBee.reminders.size()-1, BusyBee.remindersIndex+3);
                         }
-                        event.editMessage(new MessageEditBuilder().setEmbeds(BusyBee.getQotDUI()).build()).complete();
+                        event.editMessage(new MessageEditBuilder().setEmbeds(BusyBee.getReminderUI()).build()).complete();
                     }
                 }
             }
@@ -698,7 +698,7 @@ class BBListener extends ListenerAdapter {
                 String remId = event.getModalId().split("/")[3];
                 Reminder rem = BusyBee.reminders.stream().filter(r -> r.id == Integer.valueOf(remId)).findFirst().get();
                 rem.task.cancel();
-                rem.task = new ReminderTask(rem.task.msg, rem.task.channel);
+                rem.task = new ReminderTask(rem.task.msg, rem.task.channel, rem.task.interval);
                 LocalTime start = LocalTime.parse(event.getValue("start").getAsString());
                 if (start.isBefore(LocalTime.now())){
                     LocalTime nTime = start.plusHours(rem.interval);
@@ -719,7 +719,7 @@ class BBListener extends ListenerAdapter {
                 String remId = event.getModalId().split("/")[3];
                 Reminder rem = BusyBee.reminders.stream().filter(r -> r.id == Integer.valueOf(remId)).findFirst().get();
                 rem.task.cancel();
-                rem.task = new ReminderTask(rem.task.msg, rem.task.channel);
+                rem.task = new ReminderTask(rem.task.msg, rem.task.channel, rem.task.interval);
                 int interval = Integer.valueOf(event.getValue("interval").getAsString());
                 if (rem.start.isBefore(LocalTime.now())){
                     LocalTime nTime = rem.start.plusHours(interval);
@@ -861,15 +861,17 @@ class Reminder {
 }
 
 class ReminderTask extends TimerTask {
-    ReminderTask(String msg, MessageChannelUnion channel){
+    ReminderTask(String msg, MessageChannelUnion channel, int interval){
         this.msg = msg;
         this.channel = channel;
+        this.interval = interval;
     }
     String msg;
     MessageChannelUnion channel;
+    int interval;
     @Override
     public void run(){
-        if (BusyBee.awake){
+        if (BusyBee.awake && interval < 24){
             channel.sendMessage(msg).complete();
         }
     }
